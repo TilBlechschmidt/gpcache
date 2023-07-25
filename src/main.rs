@@ -7,11 +7,11 @@ use std::{
 use poem::{
     get, handler,
     listener::TcpListener,
-    middleware::AddData,
+    middleware::{AddData, Cors},
     web::{Data, Path},
     EndpointExt, Response, Route, Server,
 };
-use reqwest::StatusCode;
+use reqwest::{Method, StatusCode};
 
 const MAX_AGE: Duration = Duration::from_secs(60 * 60 * 4);
 const URL_AUTH: &str = "https://www.space-track.org/ajaxauth/login";
@@ -85,10 +85,12 @@ async fn current(Path(id): Path<String>, cache: Data<&PerturbationCache>) -> Res
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let cache = PerturbationCache::new();
+    let cors = Cors::new().allow_methods([Method::GET, Method::OPTIONS]);
 
     let app = Route::new()
         .at("/current/:id", get(current))
-        .with(AddData::new(cache));
+        .with(AddData::new(cache))
+        .with(cors);
 
     Server::new(TcpListener::bind("0.0.0.0:3000"))
         .run(app)
