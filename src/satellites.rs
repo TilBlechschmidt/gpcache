@@ -92,7 +92,7 @@ impl SatelliteDatabase {
 
     pub fn search(&self, query: &str, allowed_types: &[ObjectType]) -> Vec<Satellite> {
         // Protect our CPU :3
-        if query.len() <= 3 {
+        if query.len() < 3 {
             return Vec::new();
         }
 

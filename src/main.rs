@@ -18,7 +18,11 @@ mod satellites;
 
 type NoradId = usize;
 
-const DEFAULT_OBJECT_TYPES: &[ObjectType] = &[ObjectType::Payload, ObjectType::Unknown];
+const DEFAULT_OBJECT_TYPES: &[ObjectType] = &[
+    ObjectType::Payload,
+    ObjectType::RocketBody,
+    ObjectType::Unknown,
+];
 
 #[derive(Deserialize, Debug)]
 struct SearchQuery {
