@@ -26,7 +26,7 @@ const DEFAULT_OBJECT_TYPES: &[ObjectType] = &[
 
 #[derive(Deserialize, Debug)]
 struct SearchQuery {
-    query: String,
+    q: String,
 }
 
 #[handler]
@@ -41,7 +41,7 @@ async fn current(Path(id): Path<usize>, cache: Data<&PerturbationCache>) -> Resp
 
 #[handler]
 async fn search(q: Query<SearchQuery>, db: Data<&SatelliteDatabase>) -> Json<Vec<Satellite>> {
-    Json(db.search(&q.query, DEFAULT_OBJECT_TYPES))
+    Json(db.search(&q.q, DEFAULT_OBJECT_TYPES))
 }
 
 #[tokio::main]
