@@ -1,79 +1,32 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
-
+use api::SpaceTrackClient;
+use perturbation::PerturbationCache;
 use poem::{
     get, handler,
     listener::TcpListener,
     middleware::{AddData, Cors},
-    web::{Data, Path},
+    web::{Data, Json, Path, Query},
     EndpointExt, Response, Route, Server,
 };
 use reqwest::{Method, StatusCode};
+use satellites::{ObjectType, Satellite, SatelliteDatabase};
+use serde::Deserialize;
+use std::sync::Arc;
 
-const MAX_AGE: Duration = Duration::from_secs(60 * 60 * 4);
-const URL_AUTH: &str = "https://www.space-track.org/ajaxauth/login";
-const URL_QUERY: &str = "https://www.space-track.org/basicspacedata/query/class/gp/NORAD_CAT_ID/";
+mod api;
+mod perturbation;
+mod satellites;
 
-type NoradId = String;
+type NoradId = usize;
 
-#[derive(Clone)]
-struct PerturbationCache(Arc<Mutex<HashMap<NoradId, (Instant, String)>>>);
+const DEFAULT_OBJECT_TYPES: &[ObjectType] = &[ObjectType::Payload, ObjectType::Unknown];
 
-impl PerturbationCache {
-    fn new() -> Self {
-        Self(Arc::new(Mutex::new(HashMap::new())))
-    }
-
-    async fn get_or_fetch(&self, id: NoradId) -> Result<String, Box<dyn std::error::Error>> {
-        let cache_entry = self
-            .0
-            .lock()
-            .expect("cache mutex poisoned")
-            .get(&id)
-            .cloned();
-
-        match cache_entry {
-            Some((fetch_time, data)) if fetch_time.elapsed() < MAX_AGE => Ok(data.clone()),
-            _ => {
-                let data = self.fetch(&id).await?;
-
-                self.0
-                    .lock()
-                    .expect("cache mutex poisoned")
-                    .insert(id, (Instant::now(), data.clone()));
-
-                Ok(data.clone())
-            }
-        }
-    }
-
-    async fn fetch(&self, id: &NoradId) -> Result<String, reqwest::Error> {
-        let user =
-            std::env::var("SPACETRACK_USER").expect("missing user (env var SPACETRACK_USER)");
-        let pass =
-            std::env::var("SPACETRACK_PASS").expect("missing password (env var SPACETRACK_PASS)");
-
-        let query = format!("{URL_QUERY}{id}");
-        let params = [("identity", user), ("password", pass), ("query", query)];
-
-        let client = reqwest::Client::new();
-
-        client
-            .post(URL_AUTH)
-            .form(&params)
-            .send()
-            .await?
-            .error_for_status()?
-            .text()
-            .await
-    }
+#[derive(Deserialize, Debug)]
+struct SearchQuery {
+    query: String,
 }
 
 #[handler]
-async fn current(Path(id): Path<String>, cache: Data<&PerturbationCache>) -> Response {
+async fn current(Path(id): Path<usize>, cache: Data<&PerturbationCache>) -> Response {
     match cache.get_or_fetch(id).await {
         Ok(data) => Response::builder().status(StatusCode::OK).body(data),
         Err(e) => Response::builder()
@@ -82,17 +35,31 @@ async fn current(Path(id): Path<String>, cache: Data<&PerturbationCache>) -> Res
     }
 }
 
+#[handler]
+async fn search(q: Query<SearchQuery>, db: Data<&SatelliteDatabase>) -> Json<Vec<Satellite>> {
+    Json(db.search(&q.query, DEFAULT_OBJECT_TYPES))
+}
+
 #[tokio::main]
-async fn main() -> Result<(), std::io::Error> {
-    let cache = PerturbationCache::new();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Arc::new(SpaceTrackClient::from_env());
+    let cache = PerturbationCache::new(client.clone());
+    let db = SatelliteDatabase::new(client);
     let cors = Cors::new().allow_methods([Method::GET, Method::OPTIONS]);
 
+    // TODO Run this on a timer or smth
+    db.update().await?;
+
     let app = Route::new()
+        .at("/search", get(search))
         .at("/current/:id", get(current))
         .with(AddData::new(cache))
+        .with(AddData::new(db))
         .with(cors);
 
     Server::new(TcpListener::bind("0.0.0.0:3000"))
         .run(app)
-        .await
+        .await?;
+
+    Ok(())
 }
