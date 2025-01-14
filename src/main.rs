@@ -46,7 +46,7 @@ async fn search(q: Query<SearchQuery>, db: Data<&SatelliteDatabase>) -> Json<Vec
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Arc::new(SpaceTrackClient::from_env());
+    let client = Arc::new(SpaceTrackClient::from_env().await?);
     let cache = PerturbationCache::new(client.clone());
     let db = SatelliteDatabase::new(client);
     let cors = Cors::new().allow_methods([Method::GET, Method::OPTIONS]);
